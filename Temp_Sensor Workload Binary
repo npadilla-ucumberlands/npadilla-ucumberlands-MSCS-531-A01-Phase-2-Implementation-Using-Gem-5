@@ -1,0 +1,11 @@
+#include <stdio.h>
+#include <unistd.h>
+
+int main() {
+    while (1) {
+        sleep(30); // simulate sleep
+        int temp = 25; // simulated temperature value
+        printf("Temperature: %d C\n", temp);
+    }
+    return 0;
+}
