@@ -1,0 +1,127 @@
+# temp_sim.py
+
+import m5
+from m5.objects import *
+import os
+
+# -----------------------------
+# Cache Definitions
+# -----------------------------
+class L1ICache(Cache):
+    def __init__(self):
+        super().__init__()
+        self.size = '16kB'
+        self.assoc = 2
+        self.tag_latency = 2
+        self.data_latency = 2
+        self.response_latency = 2
+        self.mshrs = 4
+        self.tgts_per_mshr = 20
+        self.is_read_only = True
+        self.writeback_clean = True
+
+    def connectCPU(self, cpu):
+        self.cpu_side = cpu.icache_port
+
+    def connectBus(self, bus):
+        self.mem_side = bus.slave
+
+class L1DCache(Cache):
+    def __init__(self):
+        super().__init__()
+        self.size = '16kB'
+        self.assoc = 2
+        self.tag_latency = 2
+        self.data_latency = 2
+        self.response_latency = 2
+        self.mshrs = 4
+        self.tgts_per_mshr = 20
+
+    def connectCPU(self, cpu):
+        self.cpu_side = cpu.dcache_port
+
+    def connectBus(self, bus):
+        self.mem_side = bus.slave
+
+class L2Cache(Cache):
+    def __init__(self):
+        super().__init__()
+        self.size = '64kB'
+        self.assoc = 4
+        self.tag_latency = 20
+        self.data_latency = 20
+        self.response_latency = 20
+        self.mshrs = 16
+        self.tgts_per_mshr = 12
+
+    def connectCPUSideBus(self, bus):
+        self.cpu_side = bus.master
+
+    def connectMemSideBus(self, bus):
+        self.mem_side = bus.slave
+
+# -----------------------------
+# System Configuration
+# -----------------------------
+system = System()
+system.clk_domain = SrcClockDomain()
+system.clk_domain.clock = '100MHz'
+system.clk_domain.voltage_domain = VoltageDomain()
+
+system.mem_mode = 'timing'
+system.mem_ranges = [AddrRange('512MB')]
+
+# CPU
+system.cpu = X86TimingSimpleCPU()
+
+# L1 Caches
+system.cpu.icache = L1ICache()
+system.cpu.dcache = L1DCache()
+system.cpu.icache.connectCPU(system.cpu)
+system.cpu.dcache.connectCPU(system.cpu)
+
+# L2 Bus and Cache
+system.l2bus = L2XBar()
+system.cpu.icache.connectBus(system.l2bus)
+system.cpu.dcache.connectBus(system.l2bus)
+
+system.l2cache = L2Cache()
+system.l2cache.connectCPUSideBus(system.l2bus)
+
+# Memory Bus
+system.membus = SystemXBar()
+system.l2cache.connectMemSideBus(system.membus)
+system.system_port = system.membus.slave
+
+# Interrupt Controller (required for X86)
+system.cpu.createInterruptController()
+system.cpu.interrupts[0].pio = system.membus.mem_side_ports
+system.cpu.interrupts[0].int_requestor = system.membus.cpu_side_ports
+system.cpu.interrupts[0].int_responder = system.membus.mem_side_ports
+
+# Memory Controller
+system.mem_ctrl = MemCtrl()
+system.mem_ctrl.dram = DDR3_1600_8x8()
+system.mem_ctrl.dram.range = system.mem_ranges[0]
+system.mem_ctrl.port = system.membus.mem_side_ports
+
+# -----------------------------
+# Workload
+# -----------------------------
+binary = os.path.join(os.getcwd(), "temp_sensor.out")
+system.workload = SEWorkload.init_compatible(binary)
+
+process = Process()
+process.cmd = [binary]
+system.cpu.workload = process
+system.cpu.createThreads()
+
+# -----------------------------
+# Run Simulation
+# -----------------------------
+root = Root(full_system=False, system=system)
+m5.instantiate()
+
+print("Beginning simulation!")
+exit_event = m5.simulate()
+print(f"Exiting @ tick {m5.curTick()} because {exit_event.getCause()}")
